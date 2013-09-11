@@ -41,12 +41,6 @@ struct EVLoop {
 		writeln("wking ", loop, &wakeup);
 		ev_async_send(cast(void*)loop, cast(ev_async*)&wakeup);
 	}
-private:
-	shared static chan!bool started;
-	shared static ev_async wakeup;
-	shared static chan!EVReq scheduleCallback_chan;
-	shared static chan!StopEVReq scheduleStop_chan;
-	shared static void* loop;
 	void start() {
 		//scheduleCallback_chan._ = new EVReqIdle();
 		writeln("started");
@@ -67,6 +61,13 @@ private:
 			yield();
 		}
 	}
+	
+private:
+	shared static chan!bool started;
+	shared static ev_async wakeup;
+	shared static chan!EVReq scheduleCallback_chan;
+	shared static chan!StopEVReq scheduleStop_chan;
+	shared static void* loop;
 	extern(C)static void mustWake(ev_loop_t* loop, ev_async* as, int revents) {}
 
 }
