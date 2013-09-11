@@ -1,2 +1,5 @@
 goport.sublime-project
 goport.sublime-workspace
+*.o
+
+wrapper2

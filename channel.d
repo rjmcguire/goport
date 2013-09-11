@@ -1,4 +1,3 @@
-import core.sync.mutex : Mutex;
 import goroutine : sleep, yield;
 import std.datetime : dur;
 import std.traits : isInstanceOf;
@@ -11,8 +10,7 @@ import std.traits : isInstanceOf;
  */
 shared
 class chan(T) {
-	Mutex lock;
-	private bool closed_; @property bool closed() {synchronized (lock) {return closed_;}} void close() { synchronized(lock) { closed_ = true; } }
+	private bool closed_; @property bool closed() {synchronized (this) {return closed_;}} void close() { synchronized(this) { closed_ = true; } }
 
 	struct Container(T) {
 		T value;
@@ -24,7 +22,7 @@ class chan(T) {
 	void insert(T v) {
 		Container!T* newItem = new Container!T();
 		newItem.value = v;
-		synchronized (lock) {
+		synchronized (this) {
 			if (current is null) {
 				current = cast(shared)newItem;
 				last = cast(shared)newItem;
@@ -37,7 +35,7 @@ class chan(T) {
 	}
 	T getone() {
 		T ret;
-		synchronized (lock) {
+		synchronized (this) {
 			ret = cast(T)current.value;
 			current = current.next;
 			length--;
@@ -47,7 +45,6 @@ class chan(T) {
 	size_t maxItems;
 	bool blockOnFull = false;
 	this(int maxItems = 1024, bool blockOnFull = true) {
-		lock = cast(shared)new Mutex;
 		length = 0;
 
 		this.maxItems = maxItems;
@@ -58,7 +55,7 @@ class chan(T) {
 	void _(T value) {
 		bool done;
 		while(true) {
-			synchronized(lock) {
+			synchronized(this) {
 				if (closed) {
 					throw new ChannelClosedException();
 				}
@@ -77,7 +74,7 @@ class chan(T) {
 			sleep(dur!"msecs"(1));
 		}
 		bool yes;
-		synchronized(lock)
+		synchronized(this)
 			yes = length >= maxItems;
 
 		if (yes) {
@@ -89,7 +86,7 @@ class chan(T) {
 		_startagain:
 		while(true) {
 			size_t len;
-			synchronized(lock) {
+			synchronized(this) {
 				len = length;
 				if (len <= 0 && closed) {
 					throw new ChannelClosedException("on read");
@@ -101,7 +98,7 @@ class chan(T) {
 			sleep(dur!"msecs"(1));
 		};
 		T r;
-		synchronized(lock) {
+		synchronized(this) {
 			auto len = length;
 			if (len <= 0) {
 				goto _startagain;
@@ -114,7 +111,7 @@ class chan(T) {
 		return _();
 	}
 	T front() {
-		synchronized (lock) {
+		synchronized (this) {
 			return cast(T)current.value;
 		}
 	}
@@ -128,7 +125,7 @@ class chan(T) {
 	@property
 	bool empty() {
 		bool ret;
-		synchronized (lock) {
+		synchronized (this) {
 			ret = length <= 0;
 		}
 		return ret;
@@ -140,7 +137,7 @@ class chan(T) {
 	@property
 	bool writable() {
 		bool ret;
-		synchronized (lock) {
+		synchronized (this) {
 			ret = length < maxItems;
 		}
 		return ret;
