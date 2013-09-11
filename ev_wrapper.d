@@ -10,12 +10,14 @@ EVLoop loop;
 shared static this() {
 	/*auto t = new Thread(() {loop();});
 	t.start();*/
-	go!({loop();});
 
-	// make sure the events system is running before main is called
-	while(!loop.initialized) {
-		sleep(dur!"usecs"(10));
-	}
+	//go!({loop();});
+	//// make sure the events system is running before main is called
+	//while(!loop.initialized) {
+	//	sleep(dur!"usecs"(10));
+	//}
+
+	loop();
 }
 
 
@@ -26,7 +28,10 @@ struct EVLoop {
 		ret.loop = cast(shared)ev_default_loop(0);
 		ret.scheduleCallback_chan = makeChan!EVReq(100);
 		ret.scheduleStop_chan = makeChan!StopEVReq(100);
-		ret.start();
+
+		ev_async_init(cast(ev_async*)&wakeup, &mustWake);
+		ev_async_start(cast(void*)loop, cast(ev_async*)&wakeup);
+		started._ = true;
 	}
 	bool initialized() {
 		return scheduleCallback_chan !is null;
@@ -44,9 +49,6 @@ private:
 	shared static void* loop;
 	void start() {
 		//scheduleCallback_chan._ = new EVReqIdle();
-		ev_async_init(cast(ev_async*)&wakeup, &mustWake);
-		ev_async_start(cast(void*)loop, cast(ev_async*)&wakeup);
-		started._ = true;
 		writeln("started");
 		for (;;) {
 			while (!scheduleCallback_chan.empty) {
@@ -279,6 +281,8 @@ class EVReqChild : EVReq {
 	}
 
 }
+
+
 
 /+
 struct EV {

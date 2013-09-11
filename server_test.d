@@ -1,8 +1,8 @@
 module server;
-// compile with: dmd -unittest -main server_test.d goroutine.d channel.d -I~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev ~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev/deimos/ev.d -L-lev
+// compile with: dmd -g -debug -unittest server_test.d channel.d goroutine.d -I~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev ~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev/deimos/ev.d -L-lev ev_wrapper.d 
 import std.socket : Socket, TcpSocket, getAddress, SocketShutdown;
 import std.stdio;
-import goroutine : donate, shutdown;
+import goroutine : donate, shutdown, yield;
 import ev_wrapper;
 import std.datetime;
 
@@ -61,8 +61,57 @@ void main() {
 	schedule(SIGINT, () {shutdown(); writeln("sigint!");});
 
 	writeln("callback setup complete.");
-	donate();
+	loop.start();
 	/*writeln("sleeping for 100000");
 	sleep(dur!"seconds"(100000));*/
 	write("exit");
 }
+/+
+int wait(Args...)(Args args) {
+	while (true) {
+		foreach (i,arg; args) {
+			if (arg.ready)
+				return i;
+		}
+		yield();
+	}
+	assert(0, "cna't get here");
+}
+
+class MySocket : std.socket.Socket {
+	ubyte[] read(ubyte[] buf) {
+		size_t pos;
+		EVReqTicker timeout_ev = schedule(30, 0, () {writeln("timeout");});
+		EVReqSocketIO reader_ev;
+		reader_ev = schedule(this, EV_READ, (Socket self, bool error) {
+			auto n = self.receive(buf[pos..$]);
+			if (n == 0) {
+				reader_ev.stop();
+			}
+			pos += n;
+			});
+		while (true) {
+			final switch (wait(reader_ev, timeout_ev)) {
+				case 0:
+					// the reader got something
+					if (pos == buf.length) {
+						// we got everything we were asked for
+						return buf[];
+					} else if (pos == 0) {
+						// we got nothing, possible closed socket
+						return null;
+					} else {
+						reader_ev.restart();
+						timeout_ev.restart();
+						continue;
+					}
+					break;
+				case 1:
+					// the timer timed out
+
+					break;
+			}
+		}
+	}
+}
++/
