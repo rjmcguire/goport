@@ -2,7 +2,7 @@ import goroutine : sleep, yield;
 import std.datetime : dur;
 import std.traits : isInstanceOf;
 //void select(T)(T...) if (isMadeOf(chan)) { go through each arg and first !arg.empty is winner }
-
+import std.stdio;
 
 
 /**
@@ -10,8 +10,7 @@ import std.traits : isInstanceOf;
  */
 shared
 class chan(T) {
-	private bool closed_; @property bool closed() {synchronized (this) {return closed_;}} void close() { synchronized(this) { closed_ = true; } }
-
+private:
 	struct Container(T) {
 		T value;
 		Container!T* next;
@@ -44,6 +43,10 @@ class chan(T) {
 	}
 	size_t maxItems;
 	bool blockOnFull = false;
+
+public:
+	private bool closed_; @property bool closed() {synchronized (this) {return closed_;}} void close() { synchronized(this) { closed_ = true; } }
+
 	this(int maxItems = 1024, bool blockOnFull = true) {
 		length = 0;
 
@@ -124,11 +127,9 @@ class chan(T) {
 	// calling fiber/Thread will block
 	@property
 	bool empty() {
-		bool ret;
 		synchronized (this) {
-			ret = length <= 0;
+			return length <= 0;
 		}
-		return ret;
 	}
 
 	// check if there is space in the chan to write to, chan will block if this returns false and you call _(T).
@@ -169,8 +170,9 @@ int select(Args...)(Args args) if (allischan!Args()) {
 		foreach (i, arg; args) {
 			if (arg.closed)
 				closed++;
-			if (!arg.empty)
+			if (!arg.empty) {
 				ready ~= i;
+				}
 		}
 		if (closed >= args.length) {
 			return -1;
