@@ -7,6 +7,7 @@ import goroutine : go, shutdown, yield;
 
 	import std.stdio;
 
+		import std.datetime;
 
 
 class Loop {
@@ -23,60 +24,80 @@ class Loop {
 	}
 	void run() {
 		while (!input.empty) {
-			writeln("add");
-			input._.add(loop);
-			writeln("added");
+			synchronized(this) input._.add(loop);
 		}
-		writeln("go");
-		ev_run(loop, EVRUN_ONCE);
-			writeln("done");
+		synchronized(this) {
+			ev_run(loop, EVRUN_ONCE);
+		}
 	}
 }
 class EVReq {
-	enum Type { Idle, Timer }
+	shared chan!bool ready;
+	this() {
+		 ready = makeChan!bool(1);
+	}
 	abstract void add(ev_loop_t* loop);
 }
-class EVReqT(EVReq.Type T) : EVReq {
-	shared chan!bool ready = makeChan!bool(1);
-	mixin WATCHER!(T, typeof(this));
-
+class EVReqIdle : EVReq {
+	ev_idle watcher;
+	extern(C) static void cb(ev_loop_t* loop, ev_idle *idle, int revents) {
+		typeof(this) self = cast(typeof(this))idle.data;
+		assert(idle is &self.watcher);
+		self.ready._ = true;
+	}
 	override
 	void add(ev_loop_t* loop) {
 		watcher.data = cast(void*)this;
-		static if (T==EVReq.Type.Idle) {
-			ev_idle_init(&watcher, &cb);
-			ev_idle_start(loop, &watcher);
-		} static if (T==EVReq.Type.Timer) {
-			ev_timer_init(&watcher, &cb, time, repeat_interval);
-			ev_timer_start(loop, &watcher);
-		} else {
-			assert(0, "unknown evreq type");
-		}
+
+		ev_idle_init(&watcher, &cb);
+		ev_idle_start(loop, &watcher);
 	}
 }
-mixin template WATCHER(EVReq.Type T, SelfType) {
-	static if (T==EVReq.Type.Idle) {
-		ev_idle watcher;
-		extern(C) static void cb(ev_loop_t* loop, ev_idle *idle, int revents) {
-			SelfType self = cast(SelfType)idle.data;
-			assert(idle is &self.watcher);
-			self.ready._ = true;
-			writeln("okay");
+class EVReqTimer : EVReq {
+	ev_timer watcher;
+	double time, repeat_interval;
+	this(double time, double repeat_interval) {
+		this.time = time;
+		this.repeat_interval = repeat_interval;
+	}
+	extern(C) static void cb(ev_loop_t* loop, ev_timer* timer, int revents) {
+		typeof(this) self = cast(typeof(this))timer.data;
+		assert(timer is &self.watcher);
+		if (self.repeat_interval <= 0) {
+			ev_timer_stop(loop, timer);
 		}
-	} else static if (T==EVReq.Type.Timer) {
-		double time, repeat_interval;
-		this(double time, double repeat_interval) {
-			this.time = time;
-			this.repeat_interval = repeat_interval;
+		self.ready._ = true;
+	}
+	override
+	void add(ev_loop_t* loop) {
+		watcher.data = cast(void*)this;
+		ev_timer_init(&watcher, &cb, time, repeat_interval);
+		ev_timer_start(loop, &watcher);
+	}
+}
+class EVReqWallTimer : EVReq {
+	ev_periodic watcher;
+	double offset, repeat_interval;
+	this (double offset, double repeat_interval) {
+		this.offset = offset;
+		this.repeat_interval = repeat_interval;
+	}
+	override
+	void add(ev_loop_t* loop) {
+		watcher.data = cast(void*)this;
+		writefln("adding with: %f %f", offset, repeat_interval);
+		ev_periodic_init(&watcher, &cb, offset, repeat_interval, null);
+		ev_periodic_start (loop, &watcher);
+	}
+	extern(C) static void cb(ev_loop_t* loop, ev_periodic* timer, int revents) {
+		import std.conv;
+		writeln("bang, ", Clock.currTime());
+		typeof(this) self = cast(typeof(this))timer.data;
+		assert(timer is &self.watcher);
+		if (self.repeat_interval <= 0) {
+			ev_periodic_stop(loop, timer);
 		}
-		ev_timer watcher;
-		extern(C) static void cb(ev_loop_t* loop, ev_timer* timer, int revents) {
-			SelfType self = cast(SelfType)timer.data;
-			assert(timer is &self.watcher);
-			writeln("timer will okay");
-			self.ready._ = true;
-			writeln("timer okay");
-		}
+		self.ready._ = true;
 	}
 }
 
@@ -84,22 +105,28 @@ mixin template WATCHER(EVReq.Type T, SelfType) {
 unittest {
 	import std.stdio;
 	auto l = new Loop();
-	/*auto idler = new EVReqT!(EVReq.Type.Idle)();
+	/*auto idler = new EVReqIdle();
 	l.input._ = idler;
 	auto idler2 = new EVReqT!(EVReq.Type.Idle)();
 	l.input._ = idler2;*/
-	auto timer = new EVReqT!(EVReq.Type.Timer)(10, 0);
+	auto timer = new EVReqTimer(5, 1);
 	l.input._ = timer;
+	auto timer2 = new EVReqWallTimer(0,10);
+	l.input._ = timer2;
 
 
-	go!({for (;;) {writeln("run"); l.run(); yield(); } });
-	final switch(select(timer.ready)) {//idler.ready, idler2.ready)) {
-		case 0:
-			writeln("woot");
-			break;
-		case 1:
-			writeln("wart");
-			break;
+	go!({for (;;) {l.run();} });
+	for (;;) {
+		final switch(select(timer.ready, timer2.ready)) {//idler.ready, idler2.ready)) {
+			case 0:
+				timer.ready._();
+				writeln("woot");
+				break;
+			case 1:
+				timer2.ready._();
+				writeln("wart");
+				break;
+		}
 	}
 	shutdown();
 }
