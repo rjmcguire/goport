@@ -11,6 +11,7 @@ import channel;
 
 @property
 void go(alias F)() {
+	lazyStart();
 	scheduler._ = new Fiber(F);
 }
 /// sleep for d duration, uses Fiber.yield if running in a Fiber.
@@ -46,6 +47,7 @@ void donate() {
 		try {
 			fiber = scheduler._;
 		} catch (ChannelClosedException cce) {
+			writeln(cce);
 			break;
 		}
 
@@ -69,6 +71,10 @@ void donate() {
 			} catch (ChannelClosedException cce) {
 				break;
 			}
+		} else if (scheduler.empty) {
+			// exit thread, not enough fibers left to warrent thread count
+			writeln("exiting");
+			break;
 		}
 	}
 }
@@ -76,23 +82,32 @@ void donate() {
 // TODO: Scheduler should take sleep time into account.
 import std.stdio;
 private:
+auto num_threads = 1;
+Thread[] threads;
+void lazyStart() {
+	if (threads.length < num_threads) {
+		auto t = new Thread(&donate);
+		t.start();
+		threads ~= t;
+	}
+}
+
 shared chan!Fiber scheduler; // channel contains Fibers waiting for their time slice
 shared static this () {
 	scheduler = makeChan!Fiber(100);
 
 	// create the workers
 	auto goprocs = environment.get("GOPROCS");
-	auto num_threads = 1;
 	if (goprocs != null) {
 		num_threads = to!int(goprocs);
 	}
-	foreach (i; 0..num_threads) {
+	/+	foreach (i; 0..num_threads) {
 		// create threads that process the live fibers
 		auto t = new Thread(() {
 				donate();
 			});
 		t.start();
-	}
+	}+/
 }
 shared static ~this() {
 	if (thread_isMainThread()) {

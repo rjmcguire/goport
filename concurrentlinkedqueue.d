@@ -5,19 +5,24 @@ import core.atomic;
 unittest {
 	import std.stdio;
 	import goroutine;
+	import channel : makeChan;
 
 	class A { int a; shared this(int i) {a=i;} }
 	auto queue = new shared ConcurrentLinkedQueue!A;
-	foreach(i; 0..1000_000_000)
+	foreach(i; 0..100_0000)
 		queue.put(new shared A(i));
 
-	go!({foreach (i; 0..200000) writeln("1q: ", queue.popFront().a);});
-	go!({foreach (i; 0..200000) writeln("2q: ", queue.popFront().a);});
-	go!({foreach (i; 0..200000) writeln("3q: ", queue.popFront().a);});
-	go!({foreach (i; 0..200000) writeln("4q: ", queue.popFront().a);});
-	go!({foreach (i; 0..200000) writeln("5q: ", queue.popFront().a);});
+	auto done = makeChan!bool(1);
+	go!({foreach (i; 0..200000) writeln("1q: ");queue.popFront(); done ~= true;});
+	go!({foreach (i; 0..200000) writeln("2q: ");queue.popFront(); done ~= true;});
+	go!({foreach (i; 0..200000) writeln("3q: ");queue.popFront(); done ~= true;});
+	go!({foreach (i; 0..200000) writeln("4q: ");queue.popFront(); done ~= true;});
+	go!({foreach (i; 0..200000) writeln("5q: ");queue.popFront(); done ~= true;});
 
-	writeln("done");
+	foreach(i; 0..5) {
+		done();
+		writeln("done");
+	}
 	shutdown();
 }
 
@@ -30,7 +35,6 @@ private:
 		shared Node!T* next;
 		shared ~this() {
 			import std.stdio;
-			writeln("deleted");
 		}
 	}
 	Node!T* head;

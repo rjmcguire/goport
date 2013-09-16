@@ -18,7 +18,7 @@ class chan(T) {
 	Semaphore sem;
 	__gshared Condition emptyLock;
 	ConcurrentLinkedQueue!T queue;
-	private bool closed_; @property bool closed() {synchronized (this) {return closed_;}} void close() { synchronized(this) { closed_ = true; } }
+	private bool closed_; @property bool closed() {synchronized (this) {return closed_;}} void close() { synchronized(this) { closed_ = true; } emptyLock.notifyAll(); }
 
 	this(int maxItems = 1024, bool blockOnFull = true) {
 		sem = new shared Semaphore(maxItems);
@@ -46,9 +46,11 @@ class chan(T) {
 	}
 	@property
 	T _() {
+		if (closed) throw new ChannelClosedException;
 		emptyLock.mutex.lock();
 		while (empty) {
 			emptyLock.wait();
+			if (closed) throw new ChannelClosedException;
 		}
 		emptyLock.mutex.unlock();
 
