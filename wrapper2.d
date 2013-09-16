@@ -1,5 +1,5 @@
 module wrapper2;
-// compile with: dmd -g -debug -main -unittest wrapper2.d -I~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev ~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev/deimos/ev.d -L-lev
+// dmd -g -d -debug  wrapper2.d channel.d goroutine.d concurrentlinkedqueue.d -I~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev ~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev/deimos/ev.d sync/semaphore.d -L-lev
 
 import deimos.ev;
 import channel : chan, makeChan, select;
@@ -70,6 +70,7 @@ class EVReqTimer : EVReq {
 	}
 	override
 	void add(ev_loop_t* loop) {
+		assert(this !is null);
 		watcher.data = cast(void*)this;
 		ev_timer_init(&watcher, &cb, time, repeat_interval);
 		ev_timer_start(loop, &watcher);
@@ -102,7 +103,7 @@ class EVReqWallTimer : EVReq {
 }
 
 
-unittest {
+void main() {
 	import std.stdio;
 	auto l = new Loop();
 	/*auto idler = new EVReqIdle();
@@ -110,20 +111,19 @@ unittest {
 	auto idler2 = new EVReqT!(EVReq.Type.Idle)();
 	l.input._ = idler2;*/
 	auto timer = new EVReqTimer(5, 1);
-	l.input._ = timer;
+	l.input ~= timer;
 	auto timer2 = new EVReqWallTimer(0,10);
-	l.input._ = timer2;
-
+	l.input ~= timer2;
 
 	go!({for (;;) {l.run();} });
 	for (;;) {
 		final switch(select(timer.ready, timer2.ready)) {//idler.ready, idler2.ready)) {
 			case 0:
-				timer.ready._();
+				bool b = timer.ready;
 				writeln("woot");
 				break;
 			case 1:
-				timer2.ready._();
+				timer2.ready();
 				writeln("wart");
 				break;
 		}

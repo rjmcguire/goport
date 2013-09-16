@@ -3,6 +3,9 @@ import std.datetime : dur;
 import std.traits : isInstanceOf;
 //void select(T)(T...) if (isMadeOf(chan)) { go through each arg and first !arg.empty is winner }
 import std.stdio;
+import sync.semaphore;
+import core.sync.condition;
+import concurrentlinkedqueue;
 
 
 /**
@@ -10,45 +13,17 @@ import std.stdio;
  */
 shared
 class chan(T) {
-private:
-	struct Container(T) {
-		T value;
-		Container!T* next;
-	}
-	Container!T* current;
-	Container!T* last;
-	size_t length;
-	void insert(T v) {
-		Container!T* newItem = new Container!T();
-		newItem.value = v;
-		synchronized (this) {
-			if (current is null) {
-				current = cast(shared)newItem;
-				last = cast(shared)newItem;
-			} else {
-				last.next = cast(shared)newItem;
-				last = cast(shared)newItem;
-			}
-			length++;
-		}
-	}
-	T getone() {
-		T ret;
-		synchronized (this) {
-			ret = cast(T)current.value;
-			current = current.next;
-			length--;
-		}
-		return ret;
-	}
-	size_t maxItems;
+	const size_t maxItems;
 	bool blockOnFull = false;
-
-public:
+	Semaphore sem;
+	__gshared Condition emptyLock;
+	ConcurrentLinkedQueue!T queue;
 	private bool closed_; @property bool closed() {synchronized (this) {return closed_;}} void close() { synchronized(this) { closed_ = true; } }
 
 	this(int maxItems = 1024, bool blockOnFull = true) {
-		length = 0;
+		sem = new shared Semaphore(maxItems);
+		queue = new shared ConcurrentLinkedQueue!T();
+		emptyLock = new Condition(new Mutex);
 
 		this.maxItems = maxItems;
 		this.blockOnFull = blockOnFull;
@@ -56,67 +31,37 @@ public:
 
 	@property
 	void _(T value) {
-		bool done;
-		while(true) {
-			synchronized(this) {
+		if (blockOnFull) {
+			while (!sem.wait(dur!"seconds"(1))) {
 				if (closed) {
 					throw new ChannelClosedException();
 				}
-				if (!done && length < maxItems) {
-					//import std.stdio; writeln("inserted ", value);
-					insert(value);
-					done = true;
-					break;
-				} else if (!blockOnFull) {
-					throw new ChannelFullException("Channel Full");
-				}
-				if (length <= maxItems-1) {
-					break;
-				}
 			}
-			sleep(dur!"msecs"(1));
 		}
-		bool yes;
-		synchronized(this)
-			yes = length >= maxItems;
-
-		if (yes) {
-			yield();
+		if (closed) {
+			throw new ChannelClosedException();
 		}
+		queue.put(cast(shared) value);
+		emptyLock.notifyAll();
 	}
 	@property
 	T _() {
-		_startagain:
-		while(true) {
-			size_t len;
-			synchronized(this) {
-				len = length;
-				if (len <= 0 && closed) {
-					throw new ChannelClosedException("on read");
-				}
-			}
-			if (len > 0) {
-				break;
-			}
-			sleep(dur!"msecs"(1));
-		};
-		T r;
-		synchronized(this) {
-			auto len = length;
-			if (len <= 0) {
-				goto _startagain;
-			}
-			r = getone();
+		emptyLock.mutex.lock();
+		while (empty) {
+			emptyLock.wait();
 		}
-		return r;
+		emptyLock.mutex.unlock();
+
+		auto ret = queue.popFront();
+		assert(ret !is null);
+		sem.notify();
+		return cast(T)ret;
 	}
 	T popFront() {
 		return _();
 	}
 	T front() {
-		synchronized (this) {
-			return cast(T)current.value;
-		}
+		return cast(T)queue.front;
 	}
 	void put(T v) {
 		_(v);
@@ -127,9 +72,7 @@ public:
 	// calling fiber/Thread will block
 	@property
 	bool empty() {
-		synchronized (this) {
-			return length <= 0;
-		}
+		return queue.empty;
 	}
 
 	// check if there is space in the chan to write to, chan will block if this returns false and you call _(T).
@@ -137,24 +80,25 @@ public:
 	// calling fiber/Thread will block
 	@property
 	bool writable() {
-		bool ret;
-		synchronized (this) {
-			ret = length < maxItems;
-		}
+		auto ret = sem.tryWait();
+		scope(exit) sem.notify;
 		return ret;
 	}
-/+
-	void opAssign(T v) {
+
+	void opOpAssign(string U)(T v) if (U == "~") {
 		_(v);
 	}
 	@property
 	T get() {
 		return _();
 	}
-	alias get this;+/
+	T opCall() {
+		return _();
+	}
+	alias get this;
 }
 shared(chan!T) makeChan(T)(int n, bool blockOnFull = true) {
-	return cast(shared)(new chan!T(n, blockOnFull));
+	return new shared chan!T(n, blockOnFull);
 }
 
 
@@ -205,17 +149,17 @@ bool allischan(Args...)() {
 }
 
 class ChannelException : Exception {
-	this(string msg) {
-		super(msg,file,line,next);
+	this(string msg, string file = __FILE__, int line = __LINE__) {
+		super(msg,file,line);
 	}
 }
-class ChannelFullException : Exception {
-	this(string msg = "Channel Full") {
-		super(msg,file,line,next);
+class ChannelFullException : ChannelException {
+	this(string msg = "Channel Full", string file = __FILE__, int line = __LINE__) {
+		super(msg,file,line);
 	}
 }
-class ChannelClosedException : Exception {
-	this(string msg = "Channel Closed") {
-		super(msg,file,line,next);
+class ChannelClosedException : ChannelException {
+	this(string msg = "Channel Closed", string file = __FILE__, int line = __LINE__) {
+		super(msg,file,line);
 	}
 }
