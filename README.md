@@ -1,2 +1,5 @@
-#### Flags:
- * -lphobos2 -lpthread
+goport
+======
+
+Experiments relating to idiomatic go written in D #golang #dlang
+
