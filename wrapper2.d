@@ -102,6 +102,64 @@ class EVReqWallTimer : EVReq {
 	}
 }
 
+class EVReqFile : EVReq {
+	ev_io watcher;
+	File file;
+	int events;
+	ev_loop_t* lastLoopSeen;
+	this (File file, int events) {
+		this.file = file;
+		this.events = events;
+	}
+	override
+	void add(ev_loop_t* loop) {
+		watcher.data = cast(void*)this;
+		ev_io_init(&watcher, &cb, file.fileno, events);
+		ev_io_start (loop, &watcher);
+	}
+	extern(C) static void cb(ev_loop_t* loop, ev_io* watcherp, int revents) {
+		import std.conv;
+		typeof(this) self = cast(typeof(this))watcherp.data;
+		assert(watcherp is &self.watcher);
+		self.lastLoopSeen = loop;
+		self.ready._ = true;
+	}
+
+	void stop() {
+		ev_io_stop(lastLoopSeen, &watcher);
+	}
+}
+
+
+class EVReqSocket : EVReq {
+	import std.socket;
+	ev_io watcher;
+	Socket sock;
+	int events;
+	ev_loop_t* lastLoopSeen;
+	this (Socket sock, int events) {
+		this.sock = sock;
+		this.events = events;
+	}
+	override
+	void add(ev_loop_t* loop) {
+		watcher.data = cast(void*)this;
+		ev_io_init(&watcher, &cb, sock.handle, events);
+		ev_io_start (loop, &watcher);
+	}
+	extern(C) static void cb(ev_loop_t* loop, ev_io* watcherp, int revents) {
+		import std.conv;
+		typeof(this) self = cast(typeof(this))watcherp.data;
+		assert(watcherp is &self.watcher);
+		self.lastLoopSeen = loop;
+		self.ready._ = true;
+	}
+
+	void stop() {
+		ev_io_stop(lastLoopSeen, &watcher);
+	}
+}
+
 
 void main() {
 	import std.stdio;
@@ -115,9 +173,22 @@ void main() {
 	auto timer2 = new EVReqWallTimer(0,10);
 	l.input ~= timer2;
 
-	go!({for (;;) {l.run();} });
+	auto file = new EVReqFile(stdin, EV_READ);
+	l.input ~= file;
+
+	// Socket example
+	import std.socket : TcpSocket, getAddress, SocketShutdown;
+	auto s = new TcpSocket();
+	s.blocking = false;
+	s.bind(getAddress("localhost", 8080)[0]);
+	s.listen(5);
+	auto socket = new EVReqSocket(s, EV_READ);
+	l.input ~= socket;
+	// END Socket example
+
+	go!({for (;;) {writeln("asdf");l.run();} });
 	for (;;) {
-		final switch(select(timer.ready, timer2.ready)) {//idler.ready, idler2.ready)) {
+		final switch(select(timer.ready, timer2.ready, file.ready,socket.ready)) {//idler.ready, idler2.ready)) {
 			case 0:
 				bool b = timer.ready;
 				writeln("woot");
@@ -126,6 +197,25 @@ void main() {
 				timer2.ready();
 				writeln("wart");
 				break;
+			case 2:
+				file.ready();
+				auto line = file.file.readln;
+				if (file.file.eof) {
+					file.stop();
+					break;
+				}
+				import std.string : strip;
+				writeln("file: ", line.strip);
+				break;
+			case 3:
+				/*auto cs = socket.sock.accept();
+				cs.blocking = false;
+				auto n = cs.send(cast(void[])"data\n");
+				if (n == EOF) {
+					break;
+				}
+				cs.shutdown(SocketShutdown.BOTH);
+				cs.close();*/
 		}
 	}
 	shutdown();
