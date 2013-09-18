@@ -72,7 +72,7 @@ void donate() {
 				break;
 			}
 		} else if (scheduler.empty) {
-			// exit thread, not enough fibers left to warrent thread count
+			// exit thread, not enough fibers left to warrant thread count
 			writeln("exiting");
 			break;
 		}
