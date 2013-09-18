@@ -1,9 +1,9 @@
 module wrapper2;
-// dmd -g -d -debug  wrapper2.d channel.d goroutine.d concurrentlinkedqueue.d -I~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev ~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev/deimos/ev.d sync/semaphore.d -L-lev
+// dmd -g -d -debug  wrapper2.d channel.d goroutine.d concurrentlinkedqueue.d -I~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev ~/Documents/Programming/d/src/github.com/D-Programming-Deimos/libev/deimos/ev.d sync/semaphore.d  -L-lev
 
 import deimos.ev;
 import channel : chan, makeChan, select;
-import goroutine : go, shutdown, yield;
+import goroutine : go, shutdown;
 
 	import std.stdio;
 
@@ -48,7 +48,7 @@ class EVReqIdle : EVReq {
 	override
 	void add(ev_loop_t* loop) {
 		watcher.data = cast(void*)this;
-
+		writeln("p: ", (cast(Object*)&this.ready).toHash);
 		ev_idle_init(&watcher, &cb);
 		ev_idle_start(loop, &watcher);
 	}
@@ -136,6 +136,7 @@ class EVReqSocket : EVReq {
 	int events;
 	ev_loop_t* lastLoopSeen;
 	this (Socket sock, int events) {
+		sock.blocking = false;
 		this.sock = sock;
 		this.events = events;
 	}
@@ -146,7 +147,6 @@ class EVReqSocket : EVReq {
 		ev_io_start (loop, &watcher);
 	}
 	extern(C) static void cb(ev_loop_t* loop, ev_io* watcherp, int revents) {
-		import std.conv;
 		typeof(this) self = cast(typeof(this))watcherp.data;
 		assert(watcherp is &self.watcher);
 		self.lastLoopSeen = loop;
@@ -178,7 +178,6 @@ void main() {
 	import std.socket : TcpSocket, getAddress, SocketShutdown, SocketAcceptException, Socket;
 	auto s = new TcpSocket();
 	scope(exit) { s.shutdown(SocketShutdown.BOTH); s.close(); }
-	s.blocking = false;
 	s.bind(getAddress("localhost", 8080)[0]);
 	s.listen(5);
 	auto socket = new EVReqSocket(s, EV_READ);
@@ -207,7 +206,6 @@ void main() {
 				writeln("file: ", line.strip);
 				break;
 			case 3:
-				writeln("accept");
 				socket.ready();
 				Socket cs;
 				try {
@@ -218,12 +216,11 @@ void main() {
 
 				auto n = cs.send(cast(void[])"data\n");
 				if (n == EOF) {
-					writeln("WOR");
 					break;
 				}
 				cs.shutdown(SocketShutdown.BOTH);
 				cs.close();
 		}
 	}
-	shutdown();
+	//shutdown();
 }
