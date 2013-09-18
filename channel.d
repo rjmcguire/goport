@@ -109,6 +109,8 @@ shared(chan!T) makeChan(T)(int n, bool blockOnFull = true) {
 int select(Args...)(Args args) if (allischan!Args()) {
 	import std.random : uniform;
 
+	const WAIT = 1; // WAIT implements dynamic polling dropoff for the select loop, took cpu usage from 12% when idle to 0% when idle on a laptop
+	double wait = WAIT;
 	while (true) {
 		int[] ready;
 		int closed;
@@ -124,10 +126,13 @@ int select(Args...)(Args args) if (allischan!Args()) {
 			return -1;
 		}
 		if (ready.length > 0) {
+			wait = WAIT;
 			auto idx = uniform(0,ready.length);
 			return ready[idx];
+		} else {
+			wait *= 1.01;
 		}
-		sleep();
+		sleep(dur!"hnsecs"(cast(long)floor(wait)));
 	}
 }
 int select(Args...)(Args args) if (!allischan!Args()) {
