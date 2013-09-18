@@ -132,7 +132,7 @@ int select(Args...)(Args args) if (allischan!Args()) {
 		} else {
 			wait *= 1.01;
 		}
-		sleep(dur!"hnsecs"(cast(long)floor(wait)));
+		sleep(dur!"hnsecs"(cast(long)std.math.floor(wait)));
 	}
 }
 int select(Args...)(Args args) if (!allischan!Args()) {
