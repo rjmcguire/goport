@@ -86,13 +86,11 @@ class EVReqWallTimer : EVReq {
 	override
 	void add(ev_loop_t* loop) {
 		watcher.data = cast(void*)this;
-		writefln("adding with: %f %f", offset, repeat_interval);
 		ev_periodic_init(&watcher, &cb, offset, repeat_interval, null);
 		ev_periodic_start (loop, &watcher);
 	}
 	extern(C) static void cb(ev_loop_t* loop, ev_periodic* timer, int revents) {
 		import std.conv;
-		writeln("bang, ", Clock.currTime());
 		typeof(this) self = cast(typeof(this))timer.data;
 		assert(timer is &self.watcher);
 		if (self.repeat_interval <= 0) {
@@ -177,8 +175,9 @@ void main() {
 	l.input ~= file;
 
 	// Socket example
-	import std.socket : TcpSocket, getAddress, SocketShutdown;
+	import std.socket : TcpSocket, getAddress, SocketShutdown, SocketAcceptException, Socket;
 	auto s = new TcpSocket();
+	scope(exit) { s.shutdown(SocketShutdown.BOTH); s.close(); }
 	s.blocking = false;
 	s.bind(getAddress("localhost", 8080)[0]);
 	s.listen(5);
@@ -186,7 +185,7 @@ void main() {
 	l.input ~= socket;
 	// END Socket example
 
-	go!({for (;;) {writeln("asdf");l.run();} });
+	go!({for (;;) { l.run(); }});
 	for (;;) {
 		final switch(select(timer.ready, timer2.ready, file.ready,socket.ready)) {//idler.ready, idler2.ready)) {
 			case 0:
@@ -195,7 +194,7 @@ void main() {
 				break;
 			case 1:
 				timer2.ready();
-				writeln("wart");
+				writeln("wart", Clock.currTime());
 				break;
 			case 2:
 				file.ready();
@@ -208,14 +207,22 @@ void main() {
 				writeln("file: ", line.strip);
 				break;
 			case 3:
-				/*auto cs = socket.sock.accept();
-				cs.blocking = false;
+				writeln("accept");
+				socket.ready();
+				Socket cs;
+				try {
+					cs = socket.sock.accept();
+				} catch (SocketAcceptException e){
+					break;
+				}
+
 				auto n = cs.send(cast(void[])"data\n");
 				if (n == EOF) {
+					writeln("WOR");
 					break;
 				}
 				cs.shutdown(SocketShutdown.BOTH);
-				cs.close();*/
+				cs.close();
 		}
 	}
 	shutdown();
